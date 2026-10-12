@@ -11,6 +11,36 @@ The original and streaming resamplers remain available. Their audible effect
 on the Retroid Pocket Classic is unconfirmed. Use the same core, game scene,
 audio route, settings, and volume in both passes, at normal 1x speed.
 
+## Capture the core audio and final output
+
+The capture build records 20 seconds of the core's original PCM and Argosy's
+final PCM, before it reaches the Android audio backend. Both are stereo,
+16-bit WAV files, with their respective sample rates in their headers.
+Capture starts after you reach the scene. During recording, samples are copied
+into preallocated memory; a background thread writes the files afterward.
+
+Install the included APK, then run this command from the extracted ZIP folder
+in Windows Command Prompt or PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Collect-ArgosyAudio.ps1 -Mode streaming -Capture
+```
+
+Follow the helper's prompt to exit and relaunch Super Metroid using Snes9x.
+Reach the scene where the crackle is audible, then press Enter in the terminal.
+Keep the game running at 1x without opening menus or changing settings until
+the helper finishes. It retrieves a capture archive containing `audio-core.wav`,
+`audio-output.wav`, and a report snapshot. Send the timestamped `-capture.tar`
+file and say whether the crackle was audible during those 20 seconds.
+
+The helper transfers the archive as raw bytes, preserving it in Windows
+PowerShell 5.1. You can optionally extract it with `tar -xf <archive filename>`
+and play the WAV files on your computer. A second capture requires exiting
+and relaunching the game; the helper checks capture completion before saving
+the archive. Approximately 7 MB of additional memory is reserved in this debug
+build for the recording. The capture stops automatically after 20 seconds of
+output, and file recording is compiled out of release builds.
+
 ## Windows helper
 
 Extract the downloaded ZIP and open a terminal in that folder. Make sure

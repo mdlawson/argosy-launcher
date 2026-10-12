@@ -10,6 +10,8 @@ public:
     static void setDirectory(const std::string& directory);
     static void beginSession();
     static bool legacyRequested();
+    static std::string directory();
+    static bool consumeCaptureRequest();
     static void log(const char* format, ...) __attribute__((format(printf, 1, 2)));
 };
 

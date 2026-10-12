@@ -91,4 +91,22 @@ void AudioDiagnostics::log(const char* format, ...) {
 #endif
 }
 
+std::string AudioDiagnostics::directory() {
+#ifndef NDEBUG
+    std::lock_guard<std::mutex> lock(reportMutex);
+    return reportDirectory;
+#else
+    return {};
+#endif
+}
+
+bool AudioDiagnostics::consumeCaptureRequest() {
+#ifndef NDEBUG
+    const auto folder = directory();
+    return !folder.empty() && std::remove((folder + "/audio-capture").c_str()) == 0;
+#else
+    return false;
+#endif
+}
+
 }

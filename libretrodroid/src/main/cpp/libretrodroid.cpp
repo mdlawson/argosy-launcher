@@ -1211,7 +1211,8 @@ void LibretroDroid::afterGameLoad() {
     audio = std::make_unique<Audio>(
         (int32_t) std::lround(inputSampleRate),
         system_av_info.timing.fps,
-        preferLowLatencyAudio
+        preferLowLatencyAudio,
+        (int32_t) std::lround(system_av_info.timing.sample_rate)
     );
     audio->setPitchPreservation(pitchPreservationEnabled);
     audio->setOutputVolume(audioVolume);

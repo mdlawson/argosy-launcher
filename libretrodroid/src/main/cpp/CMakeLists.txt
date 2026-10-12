@@ -117,6 +117,8 @@ add_library(libretrodroid SHARED
         audio.cpp
         audiodiagnostics.h
         audiodiagnostics.cpp
+        audiocapture.h
+        audiocapture.cpp
         resamplers/resampler.h
         resamplers/linearresampler.h
         resamplers/linearresampler.cpp

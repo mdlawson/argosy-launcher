@@ -28,6 +28,7 @@
 #include "resamplers/linearresampler.h"
 #include "resamplers/streaminglinearresampler.h"
 #include "SoundTouch.h"
+#include "audiocapture.h"
 
 namespace libretrodroid {
 
@@ -42,7 +43,8 @@ private:
     const AudioLatencySettings LOW_LATENCY_SETTINGS { 4, true };
 
 public:
-    Audio(int32_t sampleRate, double refreshRate, bool preferLowLatencyAudio);
+    Audio(int32_t sampleRate, double refreshRate, bool preferLowLatencyAudio,
+          int32_t coreSampleRate = 0);
     ~Audio() override;
 
     void start();
@@ -115,6 +117,8 @@ private:
     double lastStretchTempo = 1.0;
 
 #ifndef NDEBUG
+    int32_t coreSampleRate = 0;
+    std::unique_ptr<AudioCapture> capture;
     std::atomic<uint64_t> diagnosticCallbacks {0};
     std::atomic<uint64_t> diagnosticUnderrunFrames {0};
     std::atomic<uint64_t> diagnosticUnderrunCallbacks {0};

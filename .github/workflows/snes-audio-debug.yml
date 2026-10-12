@@ -55,6 +55,12 @@ jobs:
           cmake --build /tmp/argosy-resampler-tests
           ctest --test-dir /tmp/argosy-resampler-tests --output-on-failure
 
+      - name: Test WAV capture
+        run: |
+          cmake -S libretrodroid/src/main/cpp/tests/capture -B /tmp/argosy-capture-tests
+          cmake --build /tmp/argosy-capture-tests
+          ctest --test-dir /tmp/argosy-capture-tests --output-on-failure
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug
 

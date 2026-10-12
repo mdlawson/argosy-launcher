@@ -32,11 +32,17 @@ namespace {
     constexpr double kStretchBypassEpsilon = 0.02;
 }
 
-Audio::Audio(int32_t sampleRate, double refreshRate, bool preferLowLatencyAudio) {
+Audio::Audio(int32_t sampleRate, double refreshRate, bool preferLowLatencyAudio,
+             int32_t coreSampleRate) {
     LOGI("Audio initialization has been called with input sample rate %d", sampleRate);
 
     contentRefreshRate = refreshRate;
     inputSampleRate = sampleRate;
+#ifndef NDEBUG
+    this->coreSampleRate = coreSampleRate > 0 ? coreSampleRate : sampleRate;
+#else
+    (void) coreSampleRate;
+#endif
     audioLatencySettings = findBestLatencySettings(preferLowLatencyAudio);
     initializeStream();
 }
@@ -47,6 +53,9 @@ bool Audio::initializeStream() {
     streamingResampler.reset();
     wasStretchActive = false;
 #ifndef NDEBUG
+    if (capture) {
+        capture->abort();
+    }
     useStreamingResampler = !AudioDiagnostics::legacyRequested();
 #endif
 
@@ -97,6 +106,16 @@ bool Audio::initializeStream() {
         stretchBufferFrameCapacity = audioBufferSize / 2;
         stretchInputBuffer = std::unique_ptr<float[]>(new float[audioBufferSize]);
         stretchOutputBuffer = std::unique_ptr<float[]>(new float[audioBufferSize]);
+#ifndef NDEBUG
+        if (!capture) {
+            try {
+                capture = std::make_unique<AudioCapture>(AudioDiagnostics::directory(), coreSampleRate,
+                                                         stream->getSampleRate());
+            } catch (const std::bad_alloc&) {
+                AudioDiagnostics::log("AudioDiag capture disabled: allocation failed");
+            }
+        }
+#endif
         return true;
     } else {
         LOGE("Failed to create stream. Error: %s", oboe::convertToText(result));
@@ -146,13 +165,30 @@ Audio::~Audio() {
 }
 
 void Audio::write(const int16_t *data, size_t frames) {
+#ifndef NDEBUG
+    if (capture) {
+        capture->recordCore(data, frames);
+    }
+#endif
     const int32_t writtenSamples = fifoBuffer->write(data, frames * 2);
 #ifndef NDEBUG
+    if (capture) {
+        capture->saveWhenComplete();
+    }
     diagnosticWrittenFrames += std::max(writtenSamples, 0) / 2;
     diagnosticDroppedFrames += frames - std::max(writtenSamples, 0) / 2;
     const auto now = std::chrono::steady_clock::now();
     if (now - diagnosticLastLog >= std::chrono::seconds(2)) {
         diagnosticLastLog = now;
+        if (AudioDiagnostics::consumeCaptureRequest()) {
+            if (capture && capture->start()) {
+                AudioDiagnostics::log("AudioDiag capture started seconds=20 core_hz=%d output_hz=%d resampler=%s volume=%.6f speed=%.3f",
+                    coreSampleRate, stream->getSampleRate(), useStreamingResampler ? "streaming" : "legacy",
+                    outputVolume, playbackSpeed);
+            } else {
+                AudioDiagnostics::log("AudioDiag capture rejected: relaunch the game for another capture");
+            }
+        }
         const auto xruns = stream->getXRunCount();
         AudioDiagnostics::log("AudioDiag stats resampler=%s callbacks=%llu callback_min=%d callback_max=%d written_frames=%llu dropped_frames=%llu shortage_frames=%llu shortage_callbacks=%llu fifo_frames=%u fifo_capacity_frames=%u read_factor=%.9f speed=%.3f xruns=%d",
              useStreamingResampler ? "streaming" : "legacy",
@@ -202,6 +238,11 @@ void Audio::resetBufferState() {
 }
 
 void Audio::updateTiming(int32_t newSampleRate, double newRefreshRate) {
+#ifndef NDEBUG
+    if (capture && (newSampleRate != inputSampleRate || newRefreshRate != contentRefreshRate)) {
+        capture->abort();
+    }
+#endif
     LOGI("Audio timing update: sampleRate %d -> %d, refreshRate %f -> %f",
          inputSampleRate, newSampleRate, contentRefreshRate, newRefreshRate);
     inputSampleRate = newSampleRate;
@@ -318,6 +359,11 @@ oboe::DataCallbackResult Audio::onAudioReady(oboe::AudioStream *oboeStream, void
         }
     }
 
+#ifndef NDEBUG
+    if (capture) {
+        capture->recordOutput(outputArray, numFrames);
+    }
+#endif
     latencyTuner->tune();
 
     return oboe::DataCallbackResult::Continue;
