@@ -16,6 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ANDROID_USER_HOME: ${{ runner.temp }}/argosy-audio-android-user
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,8 +36,8 @@ jobs:
       - name: Preserve debug signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: argosy-audio-debug-key-v1
+          path: ${{ env.ANDROID_USER_HOME }}/debug.keystore
+          key: argosy-audio-debug-key-v2
 
       - name: Validate Windows helper
         shell: pwsh
@@ -63,6 +65,9 @@ jobs:
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug
+
+      - name: Verify debug signing key location
+        run: test -s "$ANDROID_USER_HOME/debug.keystore"
 
       - name: Package test APK
         run: |
