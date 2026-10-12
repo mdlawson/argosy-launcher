@@ -33,6 +33,7 @@
 #include "log.h"
 #include "core.h"
 #include "audio.h"
+#include "audiodiagnostics.h"
 #include "video.h"
 #include "renderers/renderer.h"
 #include "fpssync.h"
@@ -1186,9 +1187,10 @@ void LibretroDroid::refreshTimingFromCoreIfFollowingGeometry() {
 
 void LibretroDroid::afterGameLoad() {
 #ifndef NDEBUG
+    AudioDiagnostics::beginSession();
     struct retro_system_info diagnosticCoreInfo {};
     core->retro_get_system_info(&diagnosticCoreInfo);
-    LOGI("AudioDiag core name=%s version=%s",
+    AudioDiagnostics::log("AudioDiag core name=%s version=%s",
          diagnosticCoreInfo.library_name ? diagnosticCoreInfo.library_name : "unknown",
          diagnosticCoreInfo.library_version ? diagnosticCoreInfo.library_version : "unknown");
 #endif

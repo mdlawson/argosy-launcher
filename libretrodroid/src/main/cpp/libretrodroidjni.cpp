@@ -31,6 +31,7 @@
 #include "log.h"
 #include "core.h"
 #include "audio.h"
+#include "audiodiagnostics.h"
 #include "video.h"
 #include "renderers/renderer.h"
 #include "fpssync.h"
@@ -57,6 +58,13 @@ extern "C" {
 }
 
 extern "C" {
+
+JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_setAudioDiagnosticsDirectory(
+    JNIEnv* env, jclass obj, jstring directory
+) {
+    auto diagnosticsDirectory = JniString(env, directory);
+    AudioDiagnostics::setDirectory(diagnosticsDirectory.stdString());
+}
 
 JNIEXPORT jint JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_availableDisks(
     JNIEnv* env,

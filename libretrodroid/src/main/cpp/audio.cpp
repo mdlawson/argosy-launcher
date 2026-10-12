@@ -18,13 +18,10 @@
 #include "log.h"
 
 #include "audio.h"
+#include "audiodiagnostics.h"
 #include <algorithm>
 #include <cmath>
 #include <memory>
-
-#ifndef NDEBUG
-#include <sys/system_properties.h>
-#endif
 
 namespace libretrodroid {
 
@@ -50,9 +47,7 @@ bool Audio::initializeStream() {
     streamingResampler.reset();
     wasStretchActive = false;
 #ifndef NDEBUG
-    char legacyProperty[PROP_VALUE_MAX] {};
-    __system_property_get("debug.argosy.audio.legacy", legacyProperty);
-    useStreamingResampler = legacyProperty[0] != '1';
+    useStreamingResampler = !AudioDiagnostics::legacyRequested();
 #endif
 
     int32_t audioBufferSize = computeAudioBufferSize();
@@ -74,7 +69,7 @@ bool Audio::initializeStream() {
     if (result == oboe::Result::OK) {
         baseConversionFactor = (double) inputSampleRate / stream->getSampleRate();
 #ifndef NDEBUG
-        LOGI("AudioDiag config resampler=%s input_hz=%d output_hz=%d fps=%.6f api=%s performance=%s burst_frames=%d stream_buffer_frames=%d fifo_sample_capacity=%d",
+        AudioDiagnostics::log("AudioDiag config resampler=%s input_hz=%d output_hz=%d fps=%.6f api=%s performance=%s burst_frames=%d stream_buffer_frames=%d fifo_sample_capacity=%d",
              useStreamingResampler ? "streaming" : "legacy", inputSampleRate,
              stream->getSampleRate(), contentRefreshRate,
              oboe::convertToText(stream->getAudioApi()),
@@ -159,7 +154,7 @@ void Audio::write(const int16_t *data, size_t frames) {
     if (now - diagnosticLastLog >= std::chrono::seconds(2)) {
         diagnosticLastLog = now;
         const auto xruns = stream->getXRunCount();
-        LOGI("AudioDiag stats resampler=%s callbacks=%llu callback_min=%d callback_max=%d written_frames=%llu dropped_frames=%llu shortage_frames=%llu shortage_callbacks=%llu fifo_frames=%u fifo_capacity_frames=%u read_factor=%.9f speed=%.3f xruns=%d",
+        AudioDiagnostics::log("AudioDiag stats resampler=%s callbacks=%llu callback_min=%d callback_max=%d written_frames=%llu dropped_frames=%llu shortage_frames=%llu shortage_callbacks=%llu fifo_frames=%u fifo_capacity_frames=%u read_factor=%.9f speed=%.3f xruns=%d",
              useStreamingResampler ? "streaming" : "legacy",
              (unsigned long long) diagnosticCallbacks.load(std::memory_order_relaxed),
              diagnosticMinCallbackFrames.load(std::memory_order_relaxed),

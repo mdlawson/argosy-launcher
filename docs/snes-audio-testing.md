@@ -1,99 +1,130 @@
-# Argosy SNES audio comparison
+# Argosy SNES audio comparison, report build
 
-This arm64 debug APK is based on Argosy 2.20.5, commit
-`6a7efc43e`. It installs as `com.nendo.argosy.debug`, alongside the official
-app, with its own library, settings, downloaded cores, and saves. Keep the
-official app installed.
+This debug APK is based on Argosy 2.20.5 and installs as
+`com.nendo.argosy.debug`, labelled **Argosy DBG**. It saves diagnostics inside
+the app and supports selecting the resampler with private marker files.
+Logcat is optional. The report contains the actual selected mode, the core's
+reported name/version, sample rates, FIFO shortages, dropped samples, and
+Android audio underrun counts.
 
-The APK includes the original resampler and a streaming linear resampler that
-preserves interpolation position and sample history between audio callbacks.
-The streaming path uses a two-input-frame delay, about 0.06 ms at 32 kHz.
-Pitch-preserving fast-forward continues to use the existing SoundTouch path.
-The fix has passed host tests; its effect on the Retroid Pocket Classic still
-needs confirmation.
+The original and streaming resamplers remain available. Their audible effect
+on the Retroid Pocket Classic is unconfirmed. Use the same core, game scene,
+audio route, settings, and volume in both passes, at normal 1x speed.
 
-## Install and set up
+## Windows helper
 
-Enable USB debugging, connect the device, and accept its ADB authorization prompt.
-Download `argosy-2.20.5-audio-debug.apk` into your computer's current directory:
+Extract the downloaded ZIP and open a terminal in that folder. Make sure
+`adb devices` shows the Pocket Classic as `device`. Install the included APK:
 
 ```sh
-adb devices
 adb install -r argosy-2.20.5-audio-debug.apk
+```
+
+If Android reports `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, use the backup and
+migration steps below. Future builds on this branch cache the debug signing key.
+
+For the original resampler:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Collect-ArgosyAudio.ps1 -Mode legacy -Core snes9x
+```
+
+The helper selects the mode and opens Argosy DBG. Exit any running game, launch
+Super Metroid with Snes9x, reach your scene, and listen for at least 30 seconds.
+Press Enter in the terminal when finished. The helper retrieves the app's
+report and saves a timestamped text file in the current folder. It checks that
+the report contains the chosen mode and audio statistics.
+
+Exit the game, then repeat with the streaming resampler:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Collect-ArgosyAudio.ps1 -Mode streaming -Core snes9x
+```
+
+Repeat with `-Core bsnes` while selecting bsnes in the app. The `-Core` argument
+labels the output file; the core used by the app is recorded in the report.
+The execution-policy argument applies to this helper invocation only.
+
+## If the debug APK signing key changed
+
+These steps apply only if `adb install -r` reports
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Exit the game through its menu first.
+Back up the debug app's data before removing it:
+
+```sh
+adb shell am force-stop com.nendo.argosy.debug
+cmd /c "adb exec-out run-as com.nendo.argosy.debug tar -cf - . > argosy-debug-backup.tar"
+tar -tf argosy-debug-backup.tar
+```
+
+Continue only if both archive commands succeed and the listing shows the app's
+files and databases. If either command reports an error, keep the debug app
+installed and send the error. The backup contains the debug app's saves,
+configuration, and downloaded cores; keep it until the restored app is checked.
+
+Remove only the debug package, install the new APK, and restore the backup:
+
+```sh
+adb uninstall com.nendo.argosy.debug
+adb install argosy-2.20.5-audio-debug.apk
+cmd /c "adb exec-in run-as com.nendo.argosy.debug tar -xf - < argosy-debug-backup.tar"
 adb shell am start -n com.nendo.argosy.debug/com.nendo.argosy.MainActivity
 ```
 
-Set up the debug app, add the Super Metroid ROM, and download Snes9x and bsnes.
-Use the same game revision, scene, audio route, settings, and volume for both
-passes. Use normal 1x playback without fast-forward or rewind. Keep the same
-downloaded core throughout a pair of runs.
+Check that the debug library, settings, and saves are restored before testing.
+Do not uninstall the official Argosy app. `cmd /c` keeps the tar archive's binary
+bytes intact when these commands are invoked from Windows PowerShell.
 
-## First pass: original resampler
+## Manual capture in Windows Command Prompt or PowerShell
 
-Exit any running game through the emulator menu. In a terminal on your computer:
-
-```sh
-adb shell setprop debug.argosy.audio.legacy 1
-adb logcat -T 1 -v threadtime -s libretrodroid:I AndroidRuntime:E "*:S" > snes9x-legacy.txt
-```
-
-Leave the log command running. Launch Super Metroid using Snes9x in the debug
-app, reach the test scene, and listen for at least 30 seconds. Record whether
-the original crackle is reproduced. Press Ctrl+C in the terminal to stop logging.
-
-## Second pass: corrected resampler
-
-Exit the game through the emulator menu, then:
+Exit the game before changing modes. Select the original resampler:
 
 ```sh
-adb shell setprop debug.argosy.audio.legacy 0
-adb logcat -T 1 -v threadtime -s libretrodroid:I AndroidRuntime:E "*:S" > snes9x-streaming.txt
+adb shell run-as com.nendo.argosy.debug rm -f files/audio-streaming
+adb shell run-as com.nendo.argosy.debug touch files/audio-legacy
 ```
 
-Relaunch the game, listen to the same scene for at least 30 seconds, and press
-Ctrl+C to stop logging. The property is read when the game's audio stream is
-created, so relaunch the game after every mode change.
+Launch the game and listen to the scene for at least 30 seconds, then retrieve
+the report:
 
-Repeat these two passes with bsnes, using `bsnes-legacy.txt` and
-`bsnes-streaming.txt` as the log filenames. The property affects this debug
-build only and resets on device reboot.
+```sh
+adb shell run-as com.nendo.argosy.debug cat files/audio-diagnostics.txt > snes9x-legacy.txt
+```
+
+Exit the game and select the streaming resampler:
+
+```sh
+adb shell run-as com.nendo.argosy.debug rm -f files/audio-legacy
+adb shell run-as com.nendo.argosy.debug touch files/audio-streaming
+```
+
+Relaunch, listen, and retrieve:
+
+```sh
+adb shell run-as com.nendo.argosy.debug cat files/audio-diagnostics.txt > snes9x-streaming.txt
+```
+
+These are text reports, so redirection works in both Windows shells. Retrieve
+a report before launching another game: each game launch starts a fresh report.
+Marker selection takes precedence over `debug.argosy.audio.legacy`; the old
+property is used only if neither marker is present.
 
 ## Send back
 
-- The log files and whether each run sounded clean, improved, unchanged, or worse.
+- The reports and whether each run sounded improved, unchanged, or worse.
 - Whether the original-resampler debug run reproduces the official app's crackle.
-- The game region/revision and scene description.
-- Whether you listened through speakers, wired headphones, USB audio, or Bluetooth.
+- The game region/revision, scene, and audio output route.
 
-Each run should contain `AudioDiag core` and `AudioDiag config` near launch.
-Check that `resampler=legacy` appears in the first pass and `resampler=streaming`
-in the second. Report any setprop error or missing mode change.
+`AudioDiag config` shows `resampler=legacy` or `resampler=streaming`.
+`AudioDiag stats` is written about every two seconds from the emulation thread.
+Its counts are cumulative for that Audio instance. Startup shortages can occur;
+the useful signal is whether counts continue increasing during the test scene.
+`xruns=-1` means the Android backend does not expose an underrun count.
 
-`AudioDiag stats` appears about every two seconds from the emulation thread.
-Counts are cumulative for that Audio instance. `shortage_frames` counts silence
-inserted when the emulator-side FIFO runs short; `dropped_frames` counts audio
-that did not fit into that FIFO. `xruns` reports Android stream underruns, with
-`-1` meaning the backend does not expose a count. Startup shortages are possible;
-the useful signal is whether counts keep increasing during the test scene.
+The report is written and flushed by the emulation thread, outside the real-time
+audio data callback. Diagnostics and mode selection are debug-only. The native
+streaming resampler uses fixed storage without callback allocations.
 
-## Validation and source
-
-- Debug APK assembly and signature verification.
-- Six rate pairs, including 32040 to 48000 Hz, with variable callback sizes.
-- Comparison against a continuous interpolation reference, stereo channel
-  separation, changing rates, full-scale samples, empty input, and reset.
-- AddressSanitizer and UndefinedBehaviorSanitizer checks; leak detection disabled
-  because this execution environment uses ptrace.
-- Repository added-line smell check and whitespace check.
-
-The `debug/snes-audio-test-20261012` branch contains the source changes.
-Diagnostics and the ADB selector are compiled only in debug builds. The new
-resampler uses fixed storage without allocations in its audio callback.
-
-The host tests can be run from the repository root:
-
-```sh
-cmake -S libretrodroid/src/main/cpp/tests/resampler -B /tmp/argosy-resampler-tests
-cmake --build /tmp/argosy-resampler-tests
-ctest --test-dir /tmp/argosy-resampler-tests --output-on-failure
-```
+The source changes are on `debug/snes-audio-test-20261012`. Its GitHub workflow
+runs the resampler regression suite and checks the Windows helper's syntax
+before building and publishing the APK.

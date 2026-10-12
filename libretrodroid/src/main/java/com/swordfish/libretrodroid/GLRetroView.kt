@@ -256,6 +256,7 @@ class GLRetroView(
             getDeviceLanguage()
         )
         LibretroDroid.setRumbleEnabled(data.rumbleEventsEnabled)
+        LibretroDroid.setAudioDiagnosticsDirectory(context.filesDir.absolutePath)
     }
 
     override fun onDestroy(owner: LifecycleOwner) {

@@ -96,6 +96,7 @@ public class LibretroDroid {
         String language
     );
 
+    public static native void setAudioDiagnosticsDirectory(String directory);
     public static native void loadGameFromPath(String gameFilePath);
     public static native void loadGameFromBytes(byte[] gameFileBytes);
     public static native void loadGameFromVirtualFiles(List<DetachedVirtualFile> virtualFiles);

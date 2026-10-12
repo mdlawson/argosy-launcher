@@ -29,7 +29,25 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: true
+          cache-read-only: false
+
+      - name: Preserve debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: argosy-audio-debug-key-v1
+
+      - name: Validate Windows helper
+        shell: pwsh
+        run: |
+          $parserTokens = $null
+          $parserErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/scripts/Collect-ArgosyAudio.ps1", [ref]$parserTokens, [ref]$parserErrors)
+          if ($parserErrors.Count -gt 0) {
+            $parserErrors | Format-List
+            exit 1
+          }
 
       - name: Test streaming resampler
         run: |
@@ -45,6 +63,7 @@ jobs:
           mkdir -p audio-test
           cp app/build/outputs/apk/debug/app-debug.apk audio-test/argosy-2.20.5-audio-debug.apk
           cp docs/snes-audio-testing.md audio-test/TESTING.md
+          cp scripts/Collect-ArgosyAudio.ps1 audio-test/
           cd audio-test
           sha256sum argosy-2.20.5-audio-debug.apk > SHA256SUMS
 
