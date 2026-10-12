@@ -16,8 +16,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      ANDROID_USER_HOME: ${{ runner.temp }}/argosy-audio-android-user
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +30,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: false
+
+      - name: Select Android user directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/argosy-audio-android-user"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/argosy-audio-android-user" >> "$GITHUB_ENV"
 
       - name: Preserve debug signing key
         uses: actions/cache@v4
