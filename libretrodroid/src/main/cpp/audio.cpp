@@ -22,6 +22,10 @@
 #include <cmath>
 #include <memory>
 
+#ifndef NDEBUG
+#include <sys/system_properties.h>
+#endif
+
 namespace libretrodroid {
 
 namespace {
@@ -43,6 +47,14 @@ Audio::Audio(int32_t sampleRate, double refreshRate, bool preferLowLatencyAudio)
 bool Audio::initializeStream() {
     LOGI("Using low latency stream: %d", audioLatencySettings->useLowLatencyStream);
 
+    streamingResampler.reset();
+    wasStretchActive = false;
+#ifndef NDEBUG
+    char legacyProperty[PROP_VALUE_MAX] {};
+    __system_property_get("debug.argosy.audio.legacy", legacyProperty);
+    useStreamingResampler = legacyProperty[0] != '1';
+#endif
+
     int32_t audioBufferSize = computeAudioBufferSize();
 
     oboe::AudioStreamBuilder builder;
@@ -61,6 +73,14 @@ bool Audio::initializeStream() {
     oboe::Result result = builder.openManagedStream(stream);
     if (result == oboe::Result::OK) {
         baseConversionFactor = (double) inputSampleRate / stream->getSampleRate();
+#ifndef NDEBUG
+        LOGI("AudioDiag config resampler=%s input_hz=%d output_hz=%d fps=%.6f api=%s performance=%s burst_frames=%d stream_buffer_frames=%d fifo_sample_capacity=%d",
+             useStreamingResampler ? "streaming" : "legacy", inputSampleRate,
+             stream->getSampleRate(), contentRefreshRate,
+             oboe::convertToText(stream->getAudioApi()),
+             oboe::convertToText(stream->getPerformanceMode()),
+             stream->getFramesPerBurst(), stream->getBufferSizeInFrames(), audioBufferSize);
+#endif
         fifoBuffer = std::make_unique<oboe::FifoBuffer>(2, audioBufferSize);
         temporaryAudioBuffer = std::unique_ptr<int16_t[]>(new int16_t[audioBufferSize]);
         latencyTuner = std::make_unique<oboe::LatencyTuner>(*stream);
@@ -131,7 +151,31 @@ Audio::~Audio() {
 }
 
 void Audio::write(const int16_t *data, size_t frames) {
-    fifoBuffer->write(data, frames * 2);
+    const int32_t writtenSamples = fifoBuffer->write(data, frames * 2);
+#ifndef NDEBUG
+    diagnosticWrittenFrames += std::max(writtenSamples, 0) / 2;
+    diagnosticDroppedFrames += frames - std::max(writtenSamples, 0) / 2;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - diagnosticLastLog >= std::chrono::seconds(2)) {
+        diagnosticLastLog = now;
+        const auto xruns = stream->getXRunCount();
+        LOGI("AudioDiag stats resampler=%s callbacks=%llu callback_min=%d callback_max=%d written_frames=%llu dropped_frames=%llu shortage_frames=%llu shortage_callbacks=%llu fifo_frames=%u fifo_capacity_frames=%u read_factor=%.9f speed=%.3f xruns=%d",
+             useStreamingResampler ? "streaming" : "legacy",
+             (unsigned long long) diagnosticCallbacks.load(std::memory_order_relaxed),
+             diagnosticMinCallbackFrames.load(std::memory_order_relaxed),
+             diagnosticMaxCallbackFrames.load(std::memory_order_relaxed),
+             (unsigned long long) diagnosticWrittenFrames,
+             (unsigned long long) diagnosticDroppedFrames,
+             (unsigned long long) diagnosticUnderrunFrames.load(std::memory_order_relaxed),
+             (unsigned long long) diagnosticUnderrunCallbacks.load(std::memory_order_relaxed),
+             fifoBuffer->getFullFramesAvailable() / 2,
+             fifoBuffer->getBufferCapacityInFrames() / 2,
+             diagnosticReadFactor.load(std::memory_order_relaxed), playbackSpeed,
+             xruns ? xruns.value() : -1);
+    }
+#else
+    (void) writtenSamples;
+#endif
 }
 
 void Audio::setPlaybackSpeed(const double newPlaybackSpeed) {
@@ -159,6 +203,7 @@ void Audio::resetBufferState() {
         timeStretcher->clear();
         lastStretchTempo = 1.0;
     }
+    resamplerResetRequested.store(true, std::memory_order_release);
 }
 
 void Audio::updateTiming(int32_t newSampleRate, double newRefreshRate) {
@@ -176,12 +221,19 @@ void Audio::updateTiming(int32_t newSampleRate, double newRefreshRate) {
     }
     errorIntegral = 0.0;
     framesToSubmit = 0.0;
+    resamplerResetRequested.store(true, std::memory_order_release);
 }
 
 oboe::DataCallbackResult Audio::onAudioReady(oboe::AudioStream *oboeStream, void *audioData, int32_t numFrames) {
     double dynamicBufferFactor = computeDynamicBufferConversionFactor(0.001 * numFrames);
     const bool stretchActive = pitchPreservationEnabled && timeStretcher != nullptr &&
         std::abs(playbackSpeed - 1.0) > kStretchBypassEpsilon;
+
+    if (resamplerResetRequested.exchange(false, std::memory_order_acquire) ||
+        stretchActive != wasStretchActive) {
+        streamingResampler.reset();
+    }
+    wasStretchActive = stretchActive;
 
     // FIFO read rate covers sample-rate conversion, PI-controller buffer balancing, and
     // tempo. Without stretching, resampling the oversized buffer down to numFrames yields
@@ -196,9 +248,25 @@ oboe::DataCallbackResult Audio::onAudioReady(oboe::AudioStream *oboeStream, void
 
     if (currentFramesToSubmit > stretchBufferFrameCapacity) {
         currentFramesToSubmit = stretchBufferFrameCapacity;
+        fifoReadFactor = (double) currentFramesToSubmit / numFrames;
     }
 
-    fifoBuffer->readNow(temporaryAudioBuffer.get(), currentFramesToSubmit * 2);
+    const int32_t readSamples = fifoBuffer->readNow(temporaryAudioBuffer.get(), currentFramesToSubmit * 2);
+#ifndef NDEBUG
+    diagnosticCallbacks.fetch_add(1, std::memory_order_relaxed);
+    diagnosticMinCallbackFrames.store(std::min(numFrames,
+        diagnosticMinCallbackFrames.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+    diagnosticMaxCallbackFrames.store(std::max(numFrames,
+        diagnosticMaxCallbackFrames.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+    diagnosticReadFactor.store(fifoReadFactor, std::memory_order_relaxed);
+    if (readSamples < currentFramesToSubmit * 2) {
+        diagnosticUnderrunFrames.fetch_add(currentFramesToSubmit - std::max(readSamples, 0) / 2,
+                                           std::memory_order_relaxed);
+        diagnosticUnderrunCallbacks.fetch_add(1, std::memory_order_relaxed);
+    }
+#else
+    (void) readSamples;
+#endif
 
     auto outputArray = reinterpret_cast<int16_t *>(audioData);
 
@@ -238,7 +306,12 @@ oboe::DataCallbackResult Audio::onAudioReady(oboe::AudioStream *oboeStream, void
         currentFramesToSubmit = wantedOutputFrames;
     }
 
-    resampler.resample(temporaryAudioBuffer.get(), currentFramesToSubmit, outputArray, numFrames);
+    if (useStreamingResampler && !stretchActive) {
+        streamingResampler.resample(temporaryAudioBuffer.get(), currentFramesToSubmit,
+                                   outputArray, numFrames, fifoReadFactor);
+    } else {
+        resampler.resample(temporaryAudioBuffer.get(), currentFramesToSubmit, outputArray, numFrames);
+    }
 
     if (outputVolume != 1.0f) {
         const int32_t totalSamples = numFrames * 2;

@@ -1,0 +1,59 @@
+name: SNES audio debug APK
+
+on:
+  push:
+    branches: [debug/snes-audio-test-20261012]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snes-audio-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      - name: Test streaming resampler
+        run: |
+          cmake -S libretrodroid/src/main/cpp/tests/resampler -B /tmp/argosy-resampler-tests
+          cmake --build /tmp/argosy-resampler-tests
+          ctest --test-dir /tmp/argosy-resampler-tests --output-on-failure
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Package test APK
+        run: |
+          mkdir -p audio-test
+          cp app/build/outputs/apk/debug/app-debug.apk audio-test/argosy-2.20.5-audio-debug.apk
+          cp docs/snes-audio-testing.md audio-test/TESTING.md
+          cd audio-test
+          sha256sum argosy-2.20.5-audio-debug.apk > SHA256SUMS
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: argosy-snes-audio-test
+          path: audio-test/
+          if-no-files-found: error
+          retention-days: 14

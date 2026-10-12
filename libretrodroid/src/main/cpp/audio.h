@@ -19,11 +19,14 @@
 #define LIBRETRODROID_AUDIO_H
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <unistd.h>
 #include <oboe/Oboe.h>
 #include <oboe/FifoBuffer.h>
 
 #include "resamplers/linearresampler.h"
+#include "resamplers/streaminglinearresampler.h"
 #include "SoundTouch.h"
 
 namespace libretrodroid {
@@ -76,6 +79,10 @@ private:
     const double maxi = 0.02;
 
     LinearResampler resampler;
+    StreamingLinearResampler streamingResampler;
+    bool useStreamingResampler = true;
+    bool wasStretchActive = false;
+    std::atomic<bool> resamplerResetRequested {false};
     std::unique_ptr<oboe::FifoBuffer> fifoBuffer = nullptr;
     std::unique_ptr<int16_t[]> temporaryAudioBuffer = nullptr;
 
@@ -106,6 +113,18 @@ private:
     int32_t stretchBufferFrameCapacity = 0;
     bool pitchPreservationEnabled = false;
     double lastStretchTempo = 1.0;
+
+#ifndef NDEBUG
+    std::atomic<uint64_t> diagnosticCallbacks {0};
+    std::atomic<uint64_t> diagnosticUnderrunFrames {0};
+    std::atomic<uint64_t> diagnosticUnderrunCallbacks {0};
+    std::atomic<int32_t> diagnosticMinCallbackFrames {INT32_MAX};
+    std::atomic<int32_t> diagnosticMaxCallbackFrames {0};
+    std::atomic<double> diagnosticReadFactor {1.0};
+    uint64_t diagnosticDroppedFrames = 0;
+    uint64_t diagnosticWrittenFrames = 0;
+    std::chrono::steady_clock::time_point diagnosticLastLog = std::chrono::steady_clock::now();
+#endif
 };
 
 } // namespace libretrodroid

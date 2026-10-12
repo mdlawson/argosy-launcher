@@ -1185,6 +1185,13 @@ void LibretroDroid::refreshTimingFromCoreIfFollowingGeometry() {
 }
 
 void LibretroDroid::afterGameLoad() {
+#ifndef NDEBUG
+    struct retro_system_info diagnosticCoreInfo {};
+    core->retro_get_system_info(&diagnosticCoreInfo);
+    LOGI("AudioDiag core name=%s version=%s",
+         diagnosticCoreInfo.library_name ? diagnosticCoreInfo.library_name : "unknown",
+         diagnosticCoreInfo.library_version ? diagnosticCoreInfo.library_version : "unknown");
+#endif
     struct retro_system_av_info system_av_info {};
     core->retro_get_system_av_info(&system_av_info);
 
