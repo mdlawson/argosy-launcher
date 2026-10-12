@@ -53,7 +53,8 @@ Back up the debug app's data before removing it:
 
 ```sh
 adb shell am force-stop com.nendo.argosy.debug
-cmd /c "adb exec-out run-as com.nendo.argosy.debug tar -cf - . > argosy-debug-backup.tar"
+adb shell run-as com.nendo.argosy.debug mkdir -p files databases shared_prefs no_backup
+cmd /c "adb exec-out run-as com.nendo.argosy.debug tar -cf - files databases shared_prefs no_backup > argosy-debug-backup.tar"
 tar -tf argosy-debug-backup.tar
 ```
 
