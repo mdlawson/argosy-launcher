@@ -19,7 +19,10 @@ replace_once(root / "apu/bapu/dsp/sdsp.hpp",
              "    spc_dsp.write(addr, data);",
              "    trace_dsp_write(addr, data);\n    spc_dsp.write(addr, data);")
 replace_once(root / "apu/bapu/dsp/SPC_DSP.cpp",
+             "inline void SPC_DSP::voice_output( voice_t const* v, int ch )",
+             "int volume_amp(int output, int volume, int voice, int channel);\n\n"
+             "inline void SPC_DSP::voice_output( voice_t const* v, int ch )")
+replace_once(root / "apu/bapu/dsp/SPC_DSP.cpp",
              "\tint amp = (m.t_output * (int8_t) VREG(v->regs,voll + ch)) >> 7;",
-             "\tint volume_amp(int output, int volume, int voice, int channel);\n"
              "\tint amp = volume_amp(m.t_output, (int8_t) VREG(v->regs,voll + ch), v->voice_number, ch);")
 print("Patched the trace hook and optional voice-volume ramp.")
