@@ -1,0 +1,81 @@
+name: Snes9x Android volume-smoothing test
+
+on:
+  push:
+    branches: [debug/snes-audio-test-20261012]
+    paths:
+      - scripts/snes-volume-smoothing/**
+      - .github/workflows/snes-volume-smoothing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare pinned Snes9x source
+        run: |
+          curl --fail --location --retry 3 https://codeload.github.com/libretro/snes9x/tar.gz/fae2fea08f74180759ef540ee94259213f503480 -o snes9x.tar.gz
+          mkdir core-source
+          tar -xf snes9x.tar.gz -C core-source --strip-components=1
+          python3 scripts/snes-volume-smoothing/patch_core.py core-source
+
+      - name: Test ramps and core lifecycle
+        run: |
+          g++ -std=c++17 -O2 scripts/snes-volume-smoothing/test_ramp.cpp -o /tmp/test-volume-ramp
+          /tmp/test-volume-ramp
+          g++ -std=c++17 -O2 -DSKIP_STDIO_REDEFINES -I core-source -I core-source/libretro -I core-source/libretro/libretro-common/include scripts/snes-volume-smoothing/test_core.cpp core-source/apu/bapu/smp/smp.cpp core-source/apu/bapu/smp/smp_state.cpp core-source/apu/bapu/dsp/sdsp.cpp -o /tmp/test-smoothed-core
+          /tmp/test-smoothed-core --self-test
+
+      - name: Validate Windows helper
+        shell: pwsh
+        run: |
+          $parserTokens = $null
+          $parserErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/scripts/snes-volume-smoothing/Test-SnesVolumeSmoothing.ps1", [ref]$parserTokens, [ref]$parserErrors)
+          if ($parserErrors.Count -gt 0) {
+            $parserErrors | Format-List
+            exit 1
+          }
+
+      - name: Test helper backup and recovery
+        run: python3 scripts/snes-volume-smoothing/test_helper.py scripts/snes-volume-smoothing/Test-SnesVolumeSmoothing.ps1
+
+      - name: Build arm64 test core
+        run: |
+          task_ndk_dir="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [ ! -x "$task_ndk_dir/ndk-build" ]; then
+            sdkmanager --install "ndk;27.0.12077973"
+            task_ndk_dir="$ANDROID_HOME/ndk/27.0.12077973"
+          fi
+          task_core_dir="$GITHUB_WORKSPACE/core-source"
+          "$task_ndk_dir/ndk-build" NDK_PROJECT_PATH="$task_core_dir" APP_BUILD_SCRIPT="$task_core_dir/libretro/jni/Android.mk" NDK_APPLICATION_MK="$task_core_dir/libretro/jni/Application.mk" APP_ABI=arm64-v8a APP_PLATFORM=android-23 APP_SUPPORT_FLEXIBLE_PAGE_SIZES=true NDK_OUT="$GITHUB_WORKSPACE/core-obj" NDK_LIBS_OUT="$GITHUB_WORKSPACE/core-libs" -j2
+          cp "$task_ndk_dir/source.properties" BUILD.txt
+          readelf -h core-libs/arm64-v8a/libretro.so | tee core-elf.txt
+          rg 'Machine:.*AArch64' core-elf.txt
+          nm -D core-libs/arm64-v8a/libretro.so | rg ' T retro_(run|serialize|unserialize|load_game|get_system_info)$'
+
+      - name: Package core, helper, and corresponding source
+        run: |
+          mkdir -p volume-test/source/tool
+          cp core-libs/arm64-v8a/libretro.so volume-test/snes9x_libretro_android.so
+          cp scripts/snes-volume-smoothing/Test-SnesVolumeSmoothing.ps1 scripts/snes-volume-smoothing/TESTING.md BUILD.txt volume-test/
+          cp -r core-source volume-test/source/snes9x
+          cp scripts/snes-volume-smoothing/* volume-test/source/tool/
+          cd volume-test
+          sha256sum snes9x_libretro_android.so > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snes9x-volume-smoothing-android-test
+          path: volume-test/
+          if-no-files-found: error
+          retention-days: 14
