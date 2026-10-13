@@ -1,0 +1,64 @@
+name: Ceres audio comparison for Windows
+
+on:
+  push:
+    branches: [debug/snes-audio-test-20261012]
+    paths:
+      - scripts/audio-replay/**
+      - .github/workflows/snes-audio-replay.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare pinned Snes9x source
+        shell: pwsh
+        run: |
+          $revision = 'fae2fea08f74180759ef540ee94259213f503480'
+          Invoke-WebRequest "https://codeload.github.com/libretro/snes9x/zip/$revision" -OutFile snes9x.zip
+          Expand-Archive snes9x.zip source
+          Move-Item "source/snes9x-$revision" source/snes9x
+          python scripts/audio-replay/patch_source.py source/snes9x
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and test comparison tool
+        shell: pwsh
+        run: |
+          cmake -S scripts/audio-replay -B replay-build -DSNES9X_SOURCE_DIR="$PWD/source/snes9x" -DLIBRETRO_COMMON_DIR="$PWD/libretrodroid/src/main/cpp/libretro/libretro-common"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build replay-build --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir replay-build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package executable and corresponding source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path comparison/source/libretro-common -Force
+          Copy-Item replay-build/Release/CeresAudioCompare.exe comparison/
+          Copy-Item scripts/audio-replay/README.md comparison/
+          Copy-Item scripts/audio-replay comparison/source/tool -Recurse
+          Copy-Item source/snes9x comparison/source/snes9x -Recurse
+          Copy-Item libretrodroid/src/main/cpp/libretro/libretro-common/include comparison/source/libretro-common/include -Recurse
+          $digest = (Get-FileHash comparison/CeresAudioCompare.exe -Algorithm SHA256).Hash.ToLower()
+          "$digest  CeresAudioCompare.exe" | Set-Content comparison/SHA256SUMS -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ceres-audio-comparison-windows
+          path: comparison/
+          if-no-files-found: error
+          retention-days: 14
