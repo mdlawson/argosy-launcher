@@ -131,6 +131,9 @@ bool Video::tryBuildShaderChain(const ShaderManager::Chain& shaders, std::vector
             shader.gTextureHandle = glGetUniformLocation(shader.gProgram, "Texture");
 
         shader.gPreviousPassTextureHandle = glGetUniformLocation(shader.gProgram, "previousPass");
+        shader.gOrigTextureHandle = glGetUniformLocation(shader.gProgram, "OrigTexture");
+        shader.gOrigTextureSizeHandle = glGetUniformLocation(shader.gProgram, "OrigTextureSize");
+        shader.gOrigInputSizeHandle = glGetUniformLocation(shader.gProgram, "OrigInputSize");
 
         shader.gTextureSizeHandle = glGetUniformLocation(shader.gProgram, "textureSize");
         if (shader.gTextureSizeHandle == -1)
@@ -277,12 +280,23 @@ void Video::renderFrame(bool force) {
         glBindTexture(GL_TEXTURE_2D, mainTexture);
         glUniform1i(shader.gTextureHandle, 0);
 
-        // Also provide original texture as "OriginalTexture" for shaders that need it
-        if (shader.gPreviousPassTextureHandle != -1) {
+        if (shader.gPreviousPassTextureHandle != -1 || shader.gOrigTextureHandle != -1) {
             glActiveTexture(GL_TEXTURE0 + 1);
             glBindTexture(GL_TEXTURE_2D, sourceTexture);
-            glUniform1i(shader.gPreviousPassTextureHandle, 1);
+            if (shader.gPreviousPassTextureHandle != -1)
+                glUniform1i(shader.gPreviousPassTextureHandle, 1);
+            if (shader.gOrigTextureHandle != -1)
+                glUniform1i(shader.gOrigTextureHandle, 1);
+            glActiveTexture(GL_TEXTURE0);
         }
+
+        if (shader.gOrigTextureSizeHandle != -1) {
+            float originalTextureWidth = hwRenderTexture != 0 ? hwFBOWidth : getTextureWidth();
+            float originalTextureHeight = hwRenderTexture != 0 ? hwFBOHeight : getTextureHeight();
+            glUniform2f(shader.gOrigTextureSizeHandle, originalTextureWidth, originalTextureHeight);
+        }
+        if (shader.gOrigInputSizeHandle != -1)
+            glUniform2f(shader.gOrigInputSizeHandle, getTextureWidth(), getTextureHeight());
 
         // Input size: for pass 0 use original, for subsequent passes use previous output size
         float inputWidth, inputHeight;
@@ -329,7 +343,7 @@ void Video::renderFrame(bool force) {
         glDisableVertexAttribArray(shader.gvPositionHandle);
         glDisableVertexAttribArray(shader.gvCoordinateHandle);
 
-        if (shader.gPreviousPassTextureHandle != -1 && passData.texture.has_value()) {
+        if (shader.gPreviousPassTextureHandle != -1 || shader.gOrigTextureHandle != -1) {
             glActiveTexture(GL_TEXTURE0 + 1);
             glBindTexture(GL_TEXTURE_2D, 0);
         }

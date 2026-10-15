@@ -54,6 +54,9 @@ public:
         GLint gvCoordinateHandle = 0;
         GLint gTextureHandle = 0;
         GLint gPreviousPassTextureHandle = 0;
+        GLint gOrigTextureHandle = -1;
+        GLint gOrigTextureSizeHandle = -1;
+        GLint gOrigInputSizeHandle = -1;
         GLint gScreenDensityHandle = 0;
         GLint gTextureSizeHandle = 0;
         GLint gInputSizeHandle = -1;

@@ -1,0 +1,113 @@
+name: PT SkyWalker shader test
+
+on:
+  push:
+    branches: [test/pt-skywalker-original-uniforms]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shader-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Select Android user directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/argosy-shader-android-user"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/argosy-shader-android-user" >> "$GITHUB_ENV"
+
+      - name: Preserve debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.ANDROID_USER_HOME }}/debug.keystore
+          key: argosy-audio-debug-key-v2
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Package test APK
+        run: |
+          mkdir -p shader-test
+          cp app/build/outputs/apk/debug/app-debug.apk shader-test/argosy-pt-skywalker-debug.apk
+          cp docs/pt-skywalker-testing.md shader-test/TESTING.md
+          git rev-parse HEAD > shader-test/COMMIT.txt
+          cd shader-test
+          sha256sum argosy-pt-skywalker-debug.apk > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: argosy-pt-skywalker-test
+          path: shader-test/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Run unit tests and Android lint
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shader-build-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+
+  shader-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Test original-frame uniforms on GLES
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          disable-animations: true
+          script: ./gradlew :app:connectedDebugAndroidTest -PciOnly -Pandroid.testInstrumentationRunnerArguments.class=com.nendo.argosy.libretro.shader.ShaderPreviewOriginalFrameTest
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shader-regression-results
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
