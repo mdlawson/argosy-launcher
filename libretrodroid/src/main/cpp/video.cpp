@@ -245,6 +245,8 @@ void Video::renderFrame(bool force) {
     }
 
     updateProgram();
+    float originalTextureWidth = hwRenderTexture != 0 ? hwFBOWidth : getTextureWidth();
+    float originalTextureHeight = hwRenderTexture != 0 ? hwFBOHeight : getTextureHeight();
     for (int i = 0; i < shadersChain.size(); ++i) {
         auto shader = shadersChain[i];
         auto passData = renderer->getPassData(i);
@@ -291,8 +293,6 @@ void Video::renderFrame(bool force) {
         }
 
         if (shader.gOrigTextureSizeHandle != -1) {
-            float originalTextureWidth = hwRenderTexture != 0 ? hwFBOWidth : getTextureWidth();
-            float originalTextureHeight = hwRenderTexture != 0 ? hwFBOHeight : getTextureHeight();
             glUniform2f(shader.gOrigTextureSizeHandle, originalTextureWidth, originalTextureHeight);
         }
         if (shader.gOrigInputSizeHandle != -1)
@@ -309,7 +309,9 @@ void Video::renderFrame(bool force) {
             inputHeight = getTextureHeight();
         }
 
-        glUniform2f(shader.gTextureSizeHandle, inputWidth, inputHeight);
+        float textureWidth = i > 0 && passData.texture.has_value() ? inputWidth : originalTextureWidth;
+        float textureHeight = i > 0 && passData.texture.has_value() ? inputHeight : originalTextureHeight;
+        glUniform2f(shader.gTextureSizeHandle, textureWidth, textureHeight);
 
         glUniform1f(shader.gScreenDensityHandle, getScreenDensity());
 
